@@ -1078,3 +1078,176 @@ Após isso, criamos uma pasta no root mobile chamada *app*, dentro dela criamos 
     }
   }, [response])
 ```
+
+# Aula 4 - Integrando web e mobile
+
+### **Fron-end web**
+
+Para começar, vamos adicionar novas páginas no web, para que quando o usuário queira cadastrar uma memória ele seja redirecionado para uma página de criação de memórias. Para isso vamos criar as seguintes pastas: `app > memories > new > page.tsx`. 
+
+<br>
+
+Podemos perceber que a parte da esquerda da aplicação, não sofre mudanças, independente da página. Isso é o layout dela, para configurarmos isso, vamos mover todo o lado esquerdo da nossa aplicação para o `layout.tsx`
+
+Agora, nossa ``page.tsx`` está apenas com isso:
+
+```tsx
+import { EmptyMemories } from '@/components/EmptyMemories'
+
+export default function Home() {
+  return <EmptyMemories />
+}
+```
+
+e o nosso `layout.tsx` está assim:
+
+```tsx
+export default function RootLayout({ children }: { children: ReactNode }) {
+  const isAuthenticated = cookies().has('token')
+
+  return (
+    <html lang="pt-br">
+      <body
+        className={`${roboto.variable} ${baiJamjuree.variable} bg-gray-900 font-sans text-gray-100`}
+      >
+        <main className="grid min-h-screen grid-cols-2 ">
+          {/* Left */}
+          <div className=" relative flex flex-col items-start justify-between overflow-hidden border-r border-white/10 bg-[url(../assets/bg-stars.svg)] bg-cover px-28 py-16">
+            {/* Blur */}
+            <div className="absolute right-0 top-1/2 h-[288px] w-[526px] -translate-y-1/2 translate-x-1/2 rounded-full bg-purple-700 opacity-50 blur-full" />
+
+            {/* Stripes */}
+            <div className="absolute bottom-0 right-2 top-0 w-2 bg-stripes" />
+
+            {isAuthenticated ? <Profile /> : <SignIn />}
+
+            <Hero />
+
+            <Copyright />
+          </div>
+
+          {/* Right */}
+          <div className="flex flex-col bg-[url(../assets/bg-stars.svg)] bg-cover p-16">
+            {children}
+          </div>
+        </main>
+      </body>
+    </html>
+  )
+}
+```
+
+Perceba que no lugar de `<EmptyMemories />` agora temos um *{children}*, isso quer dizer que tudo que retornar das outras páginas, será substituído naquele local deixando o resto da página igual. Massa né?
+
+<br>
+
+Vamos agora criar a funcionalidade de *logout* da nossa aplicação. Começamos criando a seguinte estrutura de pastas: `app > api > auth > logout > route.ts`. Dentro dele, configuramos da seguinte forma:
+
+```ts
+import { NextRequest, NextResponse } from 'next/server'
+
+export async function GET(request: NextRequest) {
+  const redirectUrl = new URL('/', request.url)
+
+  // Basciamente colocamos cookies sem valor sobre o nosso anterior, apagando o anterior
+
+  return NextResponse.redirect(redirectUrl, {
+    headers: {
+      'Set-Cookie': `token=; Path=/; max-age=0;`,
+    },
+  })
+}
+```
+
+Agora vamos customizar a página ``page.tsx`` de dentro da pasta **new**, só antes vamos instalar um plugin: 
+
+```
+npm install -D @tailwindcss/forms
+```
+
+depois de intalar só temos que adicionar ele dento do arquivo `tailwind.config.js` na parte de *plugins*:
+
+```js
+  plugins: [require('@tailwindcss/forms')],
+```
+
+Agora com tudo pronto, a estilização já pode ser feita.
+
+<br>
+
+### **Middleware**
+
+Precisamos agora nos preocupar com o seguinte problema: "E se o usuário não estiver logado mas conseguir entrar na página de registro de uma nova memória?". O middleware é como podemos restringir isso. Vamos começar criando um arquivo dentro de **src** chamado `middleware.ts` e vamos configurar da seguinte forma:
+
+```ts
+import { NextRequest, NextResponse } from 'next/server'
+
+const signInURL = `https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}`
+
+export function middleware(request: NextRequest) {
+  const token = request.cookies.get('token')?.value // Procura um token de login nos cookies
+
+  if (!token) {
+    // Não existe token? Logo não está logado, então vou te levar até o login
+    return NextResponse.redirect(signInURL, {
+      headers: {
+        'Set-Cookie': `redirectTo=${request.url}; Path=/; HttpOnly; max-age=20;`,
+      },
+    })
+  }
+
+  // Se chegou aqui é porque ta logado, então pode seguir
+  return NextResponse.next()
+}
+
+// Configurações com quais rotas ele deve ficar cuidando, no caso é qualquer uma depois de memories
+
+export const config = {
+  matcher: '/memories/:path*',
+}
+```
+
+E dentro de `callback.ts` nós também adicionamos a funcionalidade para redirecionar para esse mesmo cookie que configuramos acima, caso ele exista, se não exister o fluxo da aplicação segue normalmente. O botão cadastrar memória do componente `Hero.tsx` também recebeu como link `<Link href="/memories/new>"`.
+
+### **Front-end Mobile**
+
+Vamos fazer várias coisas semelhantes à web, como setar o layout da aplicação. No ReactNative, criamos dentro da pasta ***app*** um arquivo ``_layout.tsx`` e fazemos o mesmo que fizemos na web
+
+Desenvolvi **bastante** código nas rotas ``_layout.tsx`` e ``new.tsx`` então recomendo que passe e dê uma olhadinha nas estruturas das páginas.
+
+### **Back-end**
+
+Tudo que estávamos trabalhando até agora era JSON, a questão é, como vamos armazenar outros tipos de arquivos para imagens e vídeos? Para conseguirmos fazer isso, vamos baixar um pacote:
+
+```
+npm i @fastify/multipart
+```
+
+Depois de instalado, vamos importar ele no nosso `server.ts` e vamos adicionar um:
+
+```ts
+import multipart from '@fastify/multipart'
+
+app.register(multipart)
+```
+
+Feito isso vamos criar uma nova rota em **routes** chamada `upload.ts`, para conseguirmos prosseguir nele, precisamos instalar um pacote:
+
+```
+npm i @fastify/static
+```
+
+O arquivo `upload.ts` então fica assim: 
+
+```ts
+
+```
+
+Precisamos também ir para o `server.ts` e adicionar a configuração:
+
+```ts
+app.register(require('@fastify/static'), {
+  root: resolve(__dirname, '../uploads'),
+  prefix: '/uploads',
+})
+```
