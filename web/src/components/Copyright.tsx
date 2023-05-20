@@ -6,7 +6,7 @@ export function Copyright() {
         target="_blank"
         rel="noreferrer"
         className="hover:text-gray100 underline"
-        href="https>//rocketseat.com.br"
+        href="https://rocketseat.com.br"
       >
         Rocketseat
       </a>

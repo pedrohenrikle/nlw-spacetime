@@ -13,7 +13,7 @@ export async function uploadRoutes(app: FastifyInstance) {
   app.post('/upload', async (request, reply) => {
     const upload = await request.file({
       limits: {
-        fileSize: 5_42_880, // 5mb
+        fileSize: 10485760, // 10mb
       }
     })
 
@@ -48,6 +48,7 @@ export async function uploadRoutes(app: FastifyInstance) {
     // Gerar URL da imagem
     const fullUrl = request.protocol.concat('://').concat(request.hostname)
     const fileUrl = new URL(`/uploads/${fileName}`, fullUrl).toString()
+
 
     return { fileUrl }
   })

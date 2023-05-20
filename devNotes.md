@@ -1240,7 +1240,60 @@ npm i @fastify/static
 O arquivo `upload.ts` então fica assim: 
 
 ```ts
+import { FastifyInstance } from "fastify";
+import { randomUUID } from "node:crypto";
+import { createWriteStream } from "node:fs";
+import { extname, resolve } from "node:path";
+import { pipeline } from "node:stream";
+import { promisify } from "node:util";
 
+const pump = promisify(pipeline)
+
+export async function uploadRoutes(app: FastifyInstance) {
+
+  // Aqui estamos recebendo o arquivo na rota '/upload'
+  app.post('/upload', async (request, reply) => {
+    const upload = await request.file({
+      limits: {
+        fileSize: 5_42_880, // 5mb
+      }
+    })
+
+    // Se entrou na rota e não teve upload
+    if (!upload) {
+      return reply.status(400).send()
+    }
+
+    // Verificação se é imagem ou vídeo apenas
+    const mimeTypeRegex = /^(image|video)\/[a-zA-Z]+/
+    const isValidFileFormat = mimeTypeRegex.test(upload.mimetype)
+  
+    // Se não for vídeo ou imagem recebe um bad request error
+    if (!isValidFileFormat) {
+      return reply.status(400).send()
+    }
+  
+    // Criamos um ID random para servir de nome único concatenado com o nome original
+    const fileId = randomUUID()
+    const extension = extname(upload.filename)
+    const fileName = fileId.concat(extension)
+
+    // 
+    const writeStream = createWriteStream(
+      resolve(__dirname, '../../uploads/', fileName)
+    )
+
+    // É o que de fato faz acontecer
+    await pump(upload.file, writeStream)
+
+
+    // Gerar URL da imagem
+    const fullUrl = request.protocol.concat('://').concat(request.hostname)
+    const fileUrl = new URL(`/uploads/${fileName}`, fullUrl).toString()
+
+    return { fileUrl }
+  })
+}
 ```
 
 Precisamos também ir para o `server.ts` e adicionar a configuração:
@@ -1250,4 +1303,182 @@ app.register(require('@fastify/static'), {
   root: resolve(__dirname, '../uploads'),
   prefix: '/uploads',
 })
+```
+
+# Aula 5 - O próximo nível
+
+### **Front-end web**
+
+Vamos começar, implementando o preview de quando você faz upload de uma imagem na nossa aplicação. Para isso vamos separar nosso input de imagens para um componente a parte. Criamos ele então chamado `MediaPicker.tsx` e o configuramos da seguinte maneira: 
+
+```tsx
+'use client'  // Diz para o React que esse componente deve carregar o JS para o clientside
+
+import { ChangeEvent, useState } from 'react'
+
+export function MediaPicker() {
+  const [preview, setPreview] = useState<string | null>(null)
+
+  // Pega o arquivo de foto, gera uma url e já exibe ela abaixo do campo
+  function onFileSelected(event: ChangeEvent<HTMLInputElement>) { 
+    const { files } = event.target
+
+    if (!files) {
+      return
+    }
+
+    const previewURL = URL.createObjectURL(files[0])
+
+    setPreview(previewURL)
+  }
+
+  return (
+    <>
+      <input
+        type="file"
+        id="media"
+        onChange={onFileSelected}
+        className="invisible h-0 w-0"
+        accept="image/*"
+      />
+
+      {/* Exibe a imagem selecionada */}
+      {preview && (
+        // eslint-disable-next-line
+        <img
+          src={preview}
+          alt=""
+          className="aspect-video w-full rounded-lg object-cover"
+        />
+      )}
+    </>
+  )
+}
+```
+
+Agora vamos para a criação da memória na prática. De maneira simples e resumida, o Next consegue fazer com que nossa aplicação não dependa do JS do ClientSide. Isso significa que até mesmo sem JS vai ser possível utilizar nosso app. Porém, para utilizar ações como `onSubmit` ou `onChange`, ele acabam precisando carregar o JS junto com eles, por isso colocamos acima de tudo um `'use client'`, porém como não é todo o app que precisa do JS, estamos componentizando e isolando aqueles que precisam do `'use client'` para funcionarem. Seguindo essa lógica, vamos repetir o processo pro **form** dentro de `page.tsx`, da pasta ***new***.
+
+Vamos instalar também uma bibloteca `js-cookie`:
+
+```
+npm i js-cookie
+
+npm i --save-dev @types/js-cookie
+```
+
+e vamos configurar o arquivo `NewMemoryForm.tsx` da seguinte maneira: 
+
+```tsx
+'use client'
+
+import { Camera } from 'lucide-react'
+import { MediaPicker } from './MediaPicker'
+import { FormEvent } from 'react'
+import { api } from '@/lib/api'
+import Cookie from 'js-cookie'
+import { useRouter } from 'next/navigation'
+
+export function NewMemoryForm() {
+  const router = useRouter() // Permit a navegação por rotas
+
+  async function handleCreateMemory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault() // Prevê o redirecionamento de página padrão do formulário
+
+    const formData = new FormData(event.currentTarget)
+
+    const fileToUpload = formData.get('coverUrl') // Pega o arquivo da imagem
+
+    let coverUrl = ''
+
+    // Se tiver uma imagem, ele vai mandar ela pra rota '/upload' do back-end
+    if (fileToUpload) {
+      const uploadFormData = new FormData()
+      uploadFormData.set('file', fileToUpload)
+
+      const uploadResponse = await api.post('/upload', uploadFormData)
+
+      coverUrl = uploadResponse.data.fileUrl
+    }
+
+    const token = Cookie.get('token') // Buscamos o cookie de autorização (saber se está logado)
+
+    // Criamos uma memória no banco de dados
+    await api.post(
+      '/memories',
+      {
+        coverUrl,
+        content: formData.get('content'),
+        isPublic: formData.get('isPublic'),
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    router.push('/') // Mandamos o usuário de volta pra home
+  }
+
+  return (
+    <form onSubmit={handleCreateMemory} className="flex flex-1 flex-col gap-2">
+      <div className="flex items-center gap-4">
+        <label
+          htmlFor="media"
+          className="flex cursor-pointer items-center gap-1.5 text-sm text-gray-200 hover:text-gray-100"
+        >
+          <Camera className="h-4 w-4" />
+          Anexar mídia
+        </label>
+
+        <label
+          htmlFor="isPublic"
+          className="flex items-center gap-1.5 text-sm text-gray-200 hover:text-gray-200"
+        >
+          <input
+            type="checkbox"
+            name="isPublic"
+            id="isPublic"
+            value="true"
+            className="h-4 w-4 rounded border-gray-400 bg-gray-700 text-purple-500"
+          />
+          Tornar memória pública
+        </label>
+      </div>
+
+      <MediaPicker />
+
+      <textarea
+        name="content"
+        spellCheck={false}
+        className="w-full flex-1 resize-none rounded border-0 bg-transparent p-0 text-lg leading-relaxed text-gray-100 placeholder:text-gray-400 focus:ring-0"
+        placeholder="Fique livre para adicionar fotos, vídeos e relatos sobre essa experiência que você quer lembrar para sempre."
+      />
+
+      <button
+        type="submit"
+        className="inline-block self-end rounded-full bg-green-500 px-5 py-3 font-alt text-sm uppercase leading-none text-black hover:bg-green-600"
+      >
+        Salvar
+      </button>
+    </form>
+  )
+}
+```
+
+
+### **Front-end Mobile**
+
+Para fazer a parte de seleção de imagens no mobile, vamos precisar de uma bilboteca:
+
+```
+npx expo install expo-image-picker
+```
+
+Sobre a estrutura e funcionalidade, ficou bem complexo então recomento que abra o arquivo `new.tsx` do ***mobile*** para entender melhor!
+
+Vamos precisar instalar também a bibloteca `dayjs`:
+
+```
+npm i dayjs
 ```
