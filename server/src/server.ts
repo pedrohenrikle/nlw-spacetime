@@ -36,5 +36,7 @@ app
     port: 3333,
     host: '0.0.0.0',
   })
-  .then(() => {})
+  .then(() => {
+    console.log('Server running in http://localhost:3333 🚀')
+  })
  
