@@ -46,7 +46,7 @@ export function NewMemoryForm() {
       },
     )
 
-    router.push('/') // Mandamos o usuário de volta pra home
+    await router.push('/') // Mandamos o usuário de volta pra home
   }
 
   return (
